@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>디스플레이 v19.6 (루트 경로 완전 최적화)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+<style>
+  :root { --bar-h: 46px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #fff;
+    font-family: 'Pretendard', system-ui, sans-serif; user-select: none; }
+
+  #stage { position: absolute; inset: 0; overflow: hidden; background: #000; }
+  
+  #vid, #ytPlayer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; border: none; }
+  #ytPlayer { display: none; pointer-events: auto; z-index: 2; }
+  #vid { z-index: 1; }
+  #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    font-size: 28px; color: #bbb; text-align: center; padding: 20px; line-height: 1.6; z-index: 5; }
+
+  .bar { 
+    position: absolute; left: 0; right: 0; height: var(--bar-h); display: flex; align-items: stretch; 
+    background: rgba(13, 16, 23, 0.92); backdrop-filter: blur(8px); z-index: 20; 
+    opacity: 1; pointer-events: auto;
+  }
+  #topBar { top: 0; border-bottom: 1.5px solid rgba(255,255,255,0.15); }
+  #botBar { bottom: 0; border-top: 1.5px solid rgba(255,255,255,0.15); }
+
+  .label { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 16px;
+    font-size: 22px; font-weight: 800; white-space: nowrap; flex-shrink: 0; }
+  
+  #noticeLabel { padding: 0 14px; font-size: 20px; background: linear-gradient(135deg, #eb4d4b, #e17055); z-index: 2; }
+  #weatherBox { width: 165px; min-width: 0; padding: 0 6px; font-size: 17px; background: linear-gradient(135deg, #1e90ff, #0a63c9); z-index: 2; }
+  #newsLabel { background: linear-gradient(135deg, #0984e3, #00a98a); }
+  #weatherInner { display: flex; align-items: center; gap: 5px; transition: opacity .4s; }
+  #weatherInner.fade { opacity: 0; }
+  #wTemp { color: #ffeb7a; font-weight: 800; }
+
+  .tickerWrap { flex: 1; overflow: hidden; position: relative; }
+  .tickerText { position: absolute; left: 0; top: 0; height: 100%; display: flex; align-items: center;
+    white-space: nowrap; font-size: 28px; font-weight: 700; will-change: transform; }
+  .noticeItem { color: #ffeaa7; }
+  .newsItem { color: #fff; font-weight: 600; }
+  .badge { background: #ffeaa7; color: #d63031; padding: 1px 8px; border-radius: 5px; font-size: 19px; font-weight: 800; margin-right: 8px; }
+  .sep { color: #ff7675; margin: 0 28px; }
+
+  #hoverBar { position: absolute; left: 50%; bottom: 58px; transform: translateX(-50%); z-index: 30;
+    background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(255, 255, 255, 0.15); backdrop-filter: blur(10px);
+    border-radius: 30px; padding: 5px 14px; display: flex; align-items: center; gap: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.6); opacity: 0; pointer-events: none; transition: opacity 0.35s ease, transform 0.35s ease; }
+  
+  body.show-hover-ui #hoverBar { opacity: 1; pointer-events: auto; }
+
+  .navBtn { background: #374151; border: 1px solid #4b5563; color: #fff; font-size: 15px; width: 32px; height: 32px;
+    border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
+  .navBtn:hover, .navBtn:focus { background: #d97706; border-color: #f5a623; outline: 3px solid #f5a623; }
+
+  #quickList { display: flex; align-items: center; gap: 6px; overflow-x: auto; max-width: min(600px, 55vw); scrollbar-width: none; padding: 2px 0; }
+  #quickList::-webkit-scrollbar { display: none; }
+  
+  .q-item { padding: 4px 10px; background: rgba(31, 41, 55, 0.8); border: 1px solid #4b5563; border-radius: 14px;
+    font-size: 13px; cursor: pointer; white-space: nowrap; transition: all 0.2s; color: #cbd5e1; }
+  .q-item:hover, .q-item:focus { background: #4b5563; color: #fff; border-color: #f5a623; outline: 2px solid #f5a623; }
+  .q-item.active { background: #d97706; color: #fff; font-weight: 700; border-color: #fbbf24; }
+
+  #statusDotsPanel {
+    position: absolute; left: 14px; top: 54px; z-index: 35;
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 16px; padding: 6px 12px; backdrop-filter: blur(4px);
+  }
+  
+  .dot-item { display: flex; align-items: center; position: relative; cursor: pointer; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; transition: all 0.3s; }
+  .dot-green { background: #2ecc71; box-shadow: 0 0 6px #2ecc71; }
+  .dot-yellow { background: #f1c40f; box-shadow: 0 0 6px #f1c40f; }
+  .dot-red { background: #e74c3c; box-shadow: 0 0 6px #e74c3c; }
+
+  .dot-item::after {
+    content: attr(data-tooltip);
+    position: absolute; left: 50%; top: 20px; transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff; font-size: 12px; white-space: nowrap; padding: 3px 8px; border-radius: 4px;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s ease; z-index: 40;
+  }
+  .dot-item:hover::after { opacity: 1; }
+
+  #gear { position: absolute; right: 14px; top: 54px; z-index: 35; width: 38px; height: 38px;
+    border-radius: 50%; border: 1px solid #555; background: rgba(15,23,42,.7); color: #fff; font-size: 18px; opacity: .8; cursor: pointer; }
+  #gear:hover, #gear:focus { opacity: 1; outline: 3px solid #f5a623 !important; border-color: #f5a623; }
+
+  #modal { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.88); display: none; align-items: center; justify-content: center; }
+  #modal.open { display: flex; }
+  .panel { background: #111827; border: 1px solid #334155; border-radius: 16px; width: min(900px, 94vw); max-height: 92vh; overflow-y: auto; padding: 24px; font-size: 18px; }
+  .panel h2 { color: #fbbf24; margin-bottom: 16px; font-size: 26px; }
+  .panel h3 { margin: 22px 0 8px; font-size: 19px; color: #cbd5e1; }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  input[type=text], select { flex: 1; background: #1f2937; border: 1px solid #475569; color: #fff; border-radius: 8px; padding: 10px 12px; font-size: 18px; font-family: inherit; }
+  
+  button, input, select, textarea, label.cityLabel { outline: none; }
+  button:focus, input:focus, select:focus, textarea:focus, label.cityLabel:focus-within {
+    outline: 4px solid #f5a623 !important;
+    border-color: #f5a623 !important;
+    background-color: #1e293b !important;
+    box-shadow: 0 0 12px rgba(245, 166, 35, 0.6);
+  }
+
+  button { font-family: inherit; font-size: 18px; border: 0; border-radius: 8px; padding: 10px 16px; background: #d97706; color: #fff; font-weight: 700; cursor: pointer; }
+  button.del { background: #374151; padding: 6px 12px; }
+  button.edit { background: #2563eb; padding: 6px 12px; margin-right: 4px; }
+  button.big { background: #2563eb; padding: 14px 20px; font-size: 20px; }
+  button.sub { background: #059669; padding: 14px 18px; font-size: 17px; }
+  button.purple { background: #7c3aed; padding: 14px 18px; font-size: 17px; }
+  
+  .item { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: #1f2937; border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; }
+  .item.editing { border: 1px solid #fbbf24; background: #2d3748; }
+  .item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .item small { color: #94a3b8; margin-left: 6px; }
+  .cities label { display: inline-flex; align-items: center; gap: 6px; margin: 4px 14px 4px 0; padding: 6px 10px; border-radius: 6px; background: #1f2937; cursor: pointer; }
+  .cities input { width: 22px; height: 22px; }
+  .hint { color: #94a3b8; font-size: 15px; margin-top: 6px; line-height: 1.45; }
+  .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; gap: 10px; flex-wrap: wrap; }
+  .foot-btns { display: flex; gap: 8px; align-items: center; }
+  input[type=range] { width: 100%; height: 28px; }
+  #filePick, #configPick { display: none; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="vid" muted playsinline webkit-playsinline autoplay preload="auto"></video>
+  <iframe id="ytPlayer" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+  <div id="msg"></div>
+
+  <div id="hoverBar">
+    <button id="navPrev" class="navBtn" title="이전 영상" tabindex="0">◀</button>
+    <div id="quickList"></div>
+    <button id="navNext" class="navBtn" title="다음 영상" tabindex="0">▶</button>
+  </div>
+</div>
+
+<div class="bar" id="topBar">
+  <div class="label" id="noticeLabel">📢 스카이뷰 공지</div>
+  <div class="tickerWrap" id="noticeWrap"><div class="tickerText" id="noticeText"></div></div>
+  <div class="label" id="weatherBox"><div id="weatherInner">
+    <span id="wCity">서울</span> <span id="wIcon">☀️</span> <span id="wTemp">--℃</span>
+  </div></div>
+</div>
+
+<div class="bar" id="botBar">
+  <div class="label" id="newsLabel">📰 실시간 뉴스</div>
+  <div class="tickerWrap" id="newsWrap"><div class="tickerText" id="newsText"></div></div>
+</div>
+
+<div id="statusDotsPanel">
+  <div class="dot-item" id="dotWeather" data-tooltip="날씨: 확인 중"><span class="dot dot-yellow"></span></div>
+  <div class="dot-item" id="dotNews" data-tooltip="뉴스: 수신 중"><span class="dot dot-yellow"></span></div>
+  <div class="dot-item" id="dotVideo" data-tooltip="영상: 준비 중"><span class="dot dot-yellow"></span></div>
+</div>
+
+<button id="gear" title="설정" tabindex="0">⚙</button>
+
+<div id="modal"><div class="panel" id="modalPanel">
+  <h2>⚙ 디스플레이 설정</h2>
+
+  <h3>🏢 건물(단지) 이름 설정</h3>
+  <div class="row">
+    <input type="text" id="buildingNameInput" placeholder="예: 스카이뷰, 더샵, 자이 등" tabindex="0">
+  </div>
+  <div class="hint">입력하신 이름이 상단 공지 라벨(📢 [건물명] 공지)에 반영됩니다.</div>
+
+  <h3>🎬 재생 동영상 목록 (1.mp4 ~ 32.mp4 고정)</h3>
+  <div class="row">
+    <button class="big" id="pickBtn" tabindex="0">📁 USB 영상 수동 선택 (필요 시)</button>
+    <input type="text" id="vidInput" placeholder="파일명 추가(예: 33.mp4)" tabindex="0">
+    <button id="vidAdd" tabindex="0">추가</button>
+  </div>
+  <input type="file" id="filePick" accept="video/*,.mp4,.m4v,.webm,.mov,.mkv" multiple tabindex="-1">
+  <div id="unifiedVidList" style="margin-top:10px"></div>
+  <div class="hint" id="storageHint">✅ GitHub 루트 저장소의 1.mp4부터 32.mp4까지 자동 연속 재생합니다.</div>
+
+  <h3>▶️ 유튜브 설정 & 화질 선택</h3>
+  <div class="row">
+    <select id="ytQualitySelect" tabindex="0">
+      <option value="hd1080">1080p (Full HD - 권장)</option>
+      <option value="hd720">720p (HD - 버퍼링 완화)</option>
+      <option value="large">480p (SD - 인터넷 보통)</option>
+      <option value="medium">360p (저화질 - 버퍼링 최솟값)</option>
+    </select>
+  </div>
+  <div class="row" style="margin-top:6px;">
+    <input type="text" id="ytInput" placeholder="유튜브 링크 또는 채널ID" tabindex="0">
+    <button id="ytAdd" tabindex="0">추가</button>
+  </div>
+  <div id="ytList"></div>
+  <div class="row"><input type="text" id="ytWrapInput" placeholder="유튜브 중계 주소" tabindex="0"></div>
+
+  <h3>📢 공지사항 관리</h3>
+  <div class="row">
+    <input type="text" id="noticeInput" placeholder="새 공지 문구 입력" tabindex="0">
+    <button id="noticeAdd" tabindex="0">추가</button>
+  </div>
+  <div id="noticeList"></div>
+
+  <h3>📰 뉴스 RSS 주소 목록</h3>
+  <div class="row">
+    <input type="text" id="newsUrlInput" placeholder="https://..." tabindex="0">
+    <button id="newsUrlAdd" tabindex="0">추가</button>
+  </div>
+  <div id="newsUrlList"></div>
+
+  <h3>✍ 직접 입력 뉴스 (한 줄에 하나)</h3>
+  <textarea id="newsManual" rows="3" style="width:100%;background:#1f2937;border:1px solid #475569;color:#fff;border-radius:8px;padding:10px 12px;font-size:18px;font-family:inherit" placeholder="예: 오늘 오후 2시 엘리베이터 점검 안내" tabindex="0"></textarea>
+
+  <h3>⏩ 자막 속도</h3>
+  <input type="range" id="speed" min="40" max="220" step="10" tabindex="0">
+  <div class="hint">현재 <b id="speedVal"></b> px/초</div>
+
+  <h3>🌤 날씨 표시 지역</h3>
+  <div class="cities" id="cityBox"></div>
+
+  <div class="hint" id="cfgMsg">설정 백업/이동: [설정 내보내기]로 나온 글자를 config.js로 저장해 GitHub에 올리면 TV에 자동 적용됩니다.</div>
+  <textarea id="exportBox" rows="8" readonly style="display:none;width:100%;margin-top:8px;background:#0b1220;border:1px solid #475569;color:#9fe3b0;border-radius:8px;padding:10px 12px;font-size:14px;font-family:monospace" tabindex="0"></textarea>
+  <div class="foot">
+    <div class="foot-btns">
+      <button id="exportBtn" class="sub" tabindex="0">💾 설정 내보내기</button>
+      <button id="importBtn" class="purple" tabindex="0">📂 config.js 불러오기</button>
+    </div>
+    <button id="closeBtn" class="big" tabindex="0">저장하고 닫기</button>
+  </div>
+</div></div>
+
+<script src="config.js"></script>
+<script>
+/* ========== 기본값 / 저장소 설정 ========== */
+var VERSION = 'v19.6 (루트 경로 완전 최적화)';
+
+var FIXED_32_VIDEOS = [];
+for (var i = 1; i <= 32; i++) {
+  FIXED_32_VIDEOS.push(i + '.mp4');
+}
+
+var DEFAULT_NOTICES = [
+  "오늘도 입주자 여러분께 좋은 일이 가득하기를 바랍니다.",
+  "불편사항이나 변경사항은 관리사무소로 연락 부탁드립니다.",
+  "공용 공간 및 엘리베이터 이용 에티켓을 준수해 주세요.",
+  "방안에서 흡연이나 조리로인한 연기가 전체 소방벨을 울리게 합니다.신경써주시면 감사하겠습니다.",
+  "인덕션 사용시 타이머 설정을 해서 깜박 잊어버리지 않게해서 연기감지기 작동하지 않도록 신경써 주시면 감사하겠습니다."
+];
+
+var DEFAULT_RSS_LIST = [
+  'https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko',
+  'https://news.google.com/rss/headlines/section/topic/NATION?hl=ko&gl=KR&ceid=KR:ko',
+  'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=ko&gl=KR&ceid=KR:ko',
+  'https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=ko&gl=KR&ceid=KR:ko'
+];
+
+// 루트 경로에 맞춘 유튜브 중계 주소 기본값
+var DEFAULT_DEFAULT_YT_WRAPPER = 'https://skyview381.github.io/yt.html';
+
+var CITIES = {
+  seoul:{n:"서울",la:37.5665,lo:126.9780}, incheon:{n:"인천",la:37.4563,lo:126.7052},
+  daejeon:{n:"대전",la:36.3504,lo:127.3845}, gwangju:{n:"광주",la:35.1595,lo:126.8526},
+  daegu:{n:"대구",la:35.8714,lo:128.6014}, busan:{n:"부산",la:35.1796,lo:129.0756},
+  jeju:{n:"제주",la:33.4996,lo:126.5312}
+};
+
+var KEY = 'skyview_display_v19';
+function load(){ try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch(e){ return {}; } }
+var saved = load();
+
+var state = {
+  buildingName: saved.buildingName || '스카이뷰',
+  videos: (saved.videos && saved.videos.length >= 32) ? saved.videos : FIXED_32_VIDEOS.slice(),
+  youtube: saved.youtube || [],
+  ytQuality: saved.ytQuality || 'hd1080',
+  ytWrapper: DEFAULT_DEFAULT_YT_WRAPPER,
+  ytMinutes: saved.ytMinutes || 10,
+  cfgStamp: saved.cfgStamp || '',
+  notices: (saved.notices && saved.notices.length >= 1) ? saved.notices : DEFAULT_NOTICES.slice(),
+  speed: saved.speed || 90,
+  cities: saved.cities && saved.cities.length ? saved.cities : Object.keys(CITIES),
+  newsRssList: (saved.newsRssList && saved.newsRssList.length) ? saved.newsRssList : DEFAULT_RSS_LIST.slice(),
+  manualNews: saved.manualNews || ''
+};
+
+var editingNoticeIdx = -1;
+
+function persist(){ try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){} }
+function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function $(id){ return document.getElementById(id); }
+function fmtSize(n){ return n >= 1073741824 ? (n/1073741824).toFixed(1) + 'GB' : Math.round(n/1048576) + 'MB'; }
+
+if(!Promise.allSettled){
+  Promise.allSettled = function(ps){
+    return Promise.all(ps.map(function(p){
+      return Promise.resolve(p).then(function(v){ return {status:'fulfilled', value:v}; }, function(e){ return {status:'rejected', reason:e}; });
+    }));
+  };
+}
+
+function updateBuildingNameUI() {
+  var bName = state.buildingName || '스카이뷰';
+  $('noticeLabel').textContent = '📢 ' + bName + ' 공지';
+}
+
+function applyConfig(cfg, force){
+  if(!cfg || typeof cfg !== 'object') return false;
+  var stamp = cfg.updated ? String(cfg.updated) : JSON.stringify(cfg);
+  if(!force && stamp === state.cfgStamp) return false;
+  
+  if(cfg.buildingName && !saved.buildingName) state.buildingName = cfg.buildingName;
+  if(cfg.videos && cfg.videos.length !== undefined) state.videos = cfg.videos.slice();
+  if(cfg.youtube && cfg.youtube.length !== undefined) state.youtube = cfg.youtube.slice();
+  if(cfg.ytQuality) state.ytQuality = cfg.ytQuality;
+  if(cfg.ytWrapper !== undefined) state.ytWrapper = cfg.ytWrapper;
+  if(cfg.ytMinutes) state.ytMinutes = cfg.ytMinutes;
+  if(cfg.notices && cfg.notices.length) state.notices = cfg.notices.slice();
+  if(cfg.speed) state.speed = cfg.speed;
+  if(cfg.cities && cfg.cities.length) state.cities = cfg.cities.slice();
+  if(cfg.newsRssList && cfg.newsRssList.length) state.newsRssList = cfg.newsRssList.slice();
+  if(cfg.manualNews !== undefined) state.manualNews = cfg.manualNews;
+  state.cfgStamp = stamp; persist();
+  updateBuildingNameUI();
+  return true;
+}
+if(window.SKYVIEW_CONFIG) applyConfig(window.SKYVIEW_CONFIG, false);
+
+/* ========== 3개 점 개별 상태 갱신 ========== */
+function setStatus(k, text, cls){ 
+  var targetId = (k === '날씨') ? 'dotWeather' : ((k === '뉴스') ? 'dotNews' : 'dotVideo');
+  var targetEl = $(targetId);
+  if(!targetEl) return;
+  
+  var dotSpan = targetEl.querySelector('.dot');
+  var colorClass = (cls === 'ok') ? 'dot-green' : ((cls === 'bad') ? 'dot-red' : 'dot-yellow');
+  
+  dotSpan.className = 'dot ' + colorClass;
+  targetEl.setAttribute('data-tooltip', k + ': ' + text);
+}
+
+/* ========== 네트워크 도우미 ========== */
+function httpGet(url, timeoutMs){
+  return new Promise(function(resolve, reject){
+    var x = new XMLHttpRequest();
+    x.open('GET', url, true);
+    x.timeout = timeoutMs || 10000;
+    x.onload = function(){ if(x.status >= 200 && x.status < 300) resolve(x.responseText); else reject(new Error('HTTP ' + x.status)); };
+    x.onerror = function(){ reject(new Error('접속 차단/오프라인')); };
+    x.ontimeout = function(){ reject(new Error('시간 초과')); };
+    x.send();
+  });
+}
+
+function jsonp(url, timeoutMs){
+  return new Promise(function(resolve, reject){
+    var cb = '__jp' + Math.floor(Math.random() * 1e9), s = document.createElement('script'), done = false;
+    function end(){ done = true; try { delete window[cb]; } catch(e){ window[cb] = undefined; } if(s.parentNode) s.parentNode.removeChild(s); }
+    window[cb] = function(d){ if(done) return; end(); resolve(d); };
+    s.onerror = function(){ if(done) return; end(); reject(new Error('스크립트 차단')); };
+    setTimeout(function(){ if(done) return; end(); reject(new Error('시간 초과')); }, timeoutMs || 10000);
+    s.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'callback=' + cb;
+    document.head.appendChild(s);
+  });
+}
+
+/* ========== 자막 스크롤 ========== */
+function Ticker(textEl, wrapEl){ this.el=textEl; this.wrap=wrapEl; this.x=0; this.w=0; this.pending=null; this.ready=false; }
+Ticker.prototype.set = function(html){ this.pending = html; if(!this.ready) this.apply(); };
+Ticker.prototype.apply = function(){
+  if(this.pending !== null){ this.el.innerHTML = this.pending; this.pending = null; }
+  this.w = this.el.scrollWidth; this.x = this.wrap.clientWidth; this.ready = true;
+};
+Ticker.prototype.step = function(dt){
+  if(!this.ready) return;
+  this.x -= state.speed * dt;
+  if(this.x < -this.w) this.apply();
+  this.el.style.transform = 'translate3d(' + this.x + 'px,0,0)';
+};
+var noticeTicker = new Ticker($('noticeText'), $('noticeWrap'));
+var newsTicker = new Ticker($('newsText'), $('newsWrap'));
+var lastTs = 0;
+function frame(ts){
+  var dt = Math.min((ts - lastTs) / 1000, 0.1); lastTs = ts;
+  noticeTicker.step(dt); newsTicker.step(dt);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(function(t){ lastTs = t; requestAnimationFrame(frame); });
+
+function renderNotices(){
+  var bName = state.buildingName || '건물';
+  var list = state.notices.length ? state.notices : [bName + "에 오신 것을 환영합니다."];
+  noticeTicker.set(list.map(function(n){ return '<span class="noticeItem"><span class="badge">공지</span>' + esc(n) + '</span><span class="sep">★</span>'; }).join(''));
+}
+function renderNews(titles){
+  newsTicker.set(titles.map(function(t){ return '<span class="newsItem">📰 ' + esc(t) + '</span><span class="sep">✦</span>'; }).join(''));
+}
+
+/* ========== 실시간 뉴스 처리 ========== */
+var NEWS_CACHE = 'lobby_news_cache_v8';
+function cleanTitle(t){ 
+  if(!t) return '';
+  return String(t)
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+-\s+[^-]+$/, '')
+    .trim(); 
+}
+
+function parseXmlTitles(xmlText){
+  var out = [];
+  try {
+    var xml = new DOMParser().parseFromString(xmlText, 'text/xml');
+    var items = xml.querySelectorAll('item > title, entry > title');
+    for(var i = 0; i < items.length; i++){
+      var txt = cleanTitle(items[i].textContent);
+      if(txt && txt.length > 3) out.push(txt);
+    }
+  } catch(e){}
+  return out;
+}
+
+function fetchSingleRss(rssUrl) {
+  var cleanUrl = rssUrl + (rssUrl.indexOf('?') >= 0 ? '&' : '?') + '_t=' + Date.now();
+  var enc = encodeURIComponent(cleanUrl);
+
+  var routes = [
+    function(){
+      return httpGet('https://api.rss2json.com/v1/api.json?rss_url=' + enc).then(function(t){
+        var d = JSON.parse(t);
+        if(d.status !== 'ok' || !d.items) throw new Error('rss2json 실패');
+        return d.items.map(function(i){ return cleanTitle(i.title); });
+      });
+    },
+    function(){ return httpGet('https://api.allorigins.win/raw?url=' + enc).then(parseXmlTitles); },
+    function(){ return jsonp('https://api.allorigins.win/get?url=' + enc).then(function(d){ return parseXmlTitles(d.contents); }); },
+    function(){ return httpGet('https://corsproxy.io/?' + enc).then(parseXmlTitles); },
+    function(){ return httpGet('https://api.codetabs.com/v1/proxy?quest=' + enc).then(parseXmlTitles); },
+    function(){ return httpGet('https://r.jina.ai/' + cleanUrl).then(parseXmlTitles); }
+  ];
+  var errs = [];
+
+  function tryNext(idx) {
+    if (idx >= routes.length) return Promise.reject(new Error(errs[0] || '수신 실패'));
+    return routes[idx]().then(function(titles){
+      if (!titles || titles.length === 0) throw new Error('제목 없음');
+      return titles;
+    }).catch(function(e){ errs.push(e && e.message ? e.message : '오류'); return tryNext(idx + 1); });
+  }
+
+  return tryNext(0);
+}
+
+function updateNews(){
+  var rssList = state.newsRssList.length > 0 ? state.newsRssList : DEFAULT_RSS_LIST;
+  setStatus('뉴스', '수신 중...', 'wait');
+
+  return Promise.allSettled(rssList.map(function(url){ return fetchSingleRss(url); }))
+  .then(function(results){
+    var allTitles = [], reasons = [];
+    results.forEach(function(r){
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        allTitles = allTitles.concat(r.value);
+      } else if (r.status === 'rejected') { reasons.push(r.reason && r.reason.message ? r.reason.message : '오류'); }
+    });
+
+    if (allTitles.length === 0) throw new Error(reasons[0] || '뉴스 없음');
+
+    var uniq = allTitles.filter(function(t, i, a){ return t && t.length > 3 && a.indexOf(t) === i; });
+    uniq.sort(function(){ return Math.random() - 0.5; });
+    uniq = uniq.slice(0, 35);
+
+    try { localStorage.setItem(NEWS_CACHE, JSON.stringify(uniq)); } catch(e){}
+    renderNews(uniq);
+    setStatus('뉴스', '정상 (' + uniq.length + '건)', 'ok');
+  })
+  .catch(function(err){
+    var why = (err && err.message) ? err.message : '';
+    var l = (state.manualNews || '').split(/\r?\n/).map(function(x){ return x.trim(); }).filter(function(x){ return x; });
+    if(l.length){
+      renderNews(l);
+      setStatus('뉴스', '수동 뉴스 사용 중', 'wait');
+    } else {
+      var cached = []; try { cached = JSON.parse(localStorage.getItem(NEWS_CACHE)) || []; } catch(x){}
+      if(cached.length){
+        renderNews(cached);
+        setStatus('뉴스', '저장된 뉴스 표시 중', 'wait');
+      } else {
+        renderNews([(state.buildingName || '건물') + " 공지사항 및 실시간 뉴스 안내"]);
+        setStatus('뉴스', '오류 발생', 'bad');
+      }
+    }
+  });
+}
+
+/* ========== 날씨 처리 ========== */
+function wcode(c){
+  if(c === 0) return ['☀️','맑음']; if(c <= 2) return ['⛅','구름']; if(c === 3) return ['☁️','흐림'];
+  if(c === 45 || c === 48) return ['🌫️','안개']; if(c <= 57) return ['🌦️','이슬비']; if(c <= 67) return ['🌧️','비'];
+  if(c <= 77) return ['❄️','눈']; if(c <= 82) return ['🌧️','소나기']; if(c <= 86) return ['❄️','눈']; return ['⛈️','뇌우'];
+}
+var weatherData = [], weatherIdx = 0;
+function readTemp(x){
+  if(x.current && x.current.temperature_2m != null) return { t: x.current.temperature_2m, c: x.current.weather_code };
+  if(x.current_weather) return { t: x.current_weather.temperature, c: x.current_weather.weathercode };
+  throw new Error('기온 데이터 없음');
+}
+function updateWeather(){
+  var keys = state.cities.filter(function(k){ return CITIES[k]; });
+  if(!keys.length) return;
+  var errs = [];
+  return Promise.all(keys.map(function(k){
+    var c = CITIES[k];
+    var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + c.la + '&longitude=' + c.lo +
+      '&current=temperature_2m,weather_code&current_weather=true&timezone=Asia%2FSeoul';
+    return httpGet(url).then(function(t){
+      var r = readTemp(JSON.parse(t));
+      return { city: c.n, temp: Math.round(r.t), w: wcode(r.c) };
+    }).catch(function(e){ errs.push(c.n + ':' + e.message); return null; });
+  })).then(function(list){
+    list = list.filter(function(x){ return x; });
+    if(list.length){
+      weatherData = list;
+      if(weatherIdx >= weatherData.length) weatherIdx = 0;
+      showWeather();
+      setStatus('날씨', '정상 (' + list.length + '개 지역)', 'ok');
+    } else setStatus('날씨', '오프라인/오류', 'bad');
+  });
+}
+function showWeather(){
+  if(!weatherData.length) return;
+  var w = weatherData[weatherIdx];
+  $('wCity').textContent = w.city; $('wIcon').textContent = w.w[0]; $('wTemp').textContent = w.temp + '℃';
+}
+setInterval(function(){
+  if(weatherData.length < 2) return;
+  var el = $('weatherInner'); el.classList.add('fade');
+  setTimeout(function(){ weatherIdx = (weatherIdx + 1) % weatherData.length; showWeather(); el.classList.remove('fade'); }, 400);
+}, 5000);
+
+/* ========== USB 저장소 (IndexedDB) ========== */
+var DB_NAME = 'lobby_videos_db', STORE = 'files';
+var localItems = [];
+function dbOpen(){
+  return new Promise(function(res, rej){
+    if(!window.indexedDB) return rej(new Error('IndexedDB 미지원'));
+    var r = indexedDB.open(DB_NAME, 1);
+    r.onupgradeneeded = function(){ r.result.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true }); };
+    r.onsuccess = function(){ res(r.result); };
+    r.onerror = function(){ rej(r.error || new Error('DB 오류')); };
+  });
+}
+function dbAll(){
+  return dbOpen().then(function(db){ return new Promise(function(res, rej){
+    var q = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+    q.onsuccess = function(){ res(q.result); }; q.onerror = function(){ rej(q.error); };
+  }); });
+}
+function dbAdd(rec){
+  return dbOpen().then(function(db){ return new Promise(function(res, rej){
+    var tx = db.transaction(STORE, 'readwrite'), id;
+    var q = tx.objectStore(STORE).add(rec);
+    q.onsuccess = function(){ id = q.result; };
+    tx.oncomplete = function(){ res(id); };
+    tx.onerror = function(){ rej(tx.error || new Error('저장 실패')); };
+  }); });
+}
+function dbDel(id){
+  return dbOpen().then(function(db){ return new Promise(function(res, rej){
+    var tx = db.transaction(STORE, 'readwrite'); tx.objectStore(STORE).delete(id);
+    tx.oncomplete = function(){ res(); }; tx.onerror = function(){ rej(tx.error); };
+  }); });
+}
+function loadLocal(){
+  return dbAll().then(function(list){
+    localItems = list.map(function(r){ return { id: r.id, name: r.name, size: r.size, blob: r.blob, persisted: true }; });
+  }).catch(function(){ localItems = []; setStatus('영상', '저장소 모드', 'wait'); });
+}
+function addFiles(files){
+  var arr = Array.prototype.slice.call(files || []);
+  if(!arr.length) return;
+  var done = 0;
+  $('storageHint').textContent = 'USB 동영상 저장 중... (0/' + arr.length + ')';
+  return arr.reduce(function(p, f){
+    return p.then(function(){
+      return dbAdd({ name: f.name, size: f.size, blob: f }).then(function(id){
+        localItems.push({ id: id, name: f.name, size: f.size, blob: f, persisted: true });
+      }).catch(function(){
+        localItems.push({ id: null, name: f.name, size: f.size, blob: f, persisted: false });
+      }).then(function(){ done++; $('storageHint').textContent = 'USB 동영상 저장 중... (' + done + '/' + arr.length + ')'; renderSettings(); });
+    });
+  }, Promise.resolve()).then(function(){ videoDirty = true; renderSettings(); });
+}
+
+/* ========== 플레이어 ========== */
+var vid = $('vid'), ytPlayer = $('ytPlayer'), currentIndex = 0, curUrl = null, videoDirty = false, failTimer = null;
+
+function parseYtId(url) {
+  var m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|live\/)|[\?&]v=)([^"&?\/\s]{11})/);
+  return m ? m[1] : null;
+}
+
+function ytTarget(u){
+  u = String(u).trim();
+  var id = parseYtId(u); if(id) return { k: 'v', id: id };
+  var m = u.match(/(UC[\w-]{22})/); if(m) return { k: 'c', id: m[1] };
+  if(/^[\w-]{11}$/.test(u)) return { k: 'v', id: u };
+  return null;
+}
+
+function buildPlaylist(){
+  var pl = [];
+  localItems.forEach(function(it){
+    pl.push({ type: 'local', blob: it.blob, label: it.name });
+  });
+  state.videos.forEach(function(v){
+    pl.push({ type: 'mp4Url', src: v, label: v });
+  });
+  state.youtube.forEach(function(y){
+    var t = ytTarget(y);
+    if(t) pl.push({ type: 'youtube', target: t, raw: y, label: y });
+  });
+  return pl;
+}
+
+function showMsg(t){ $('msg').innerHTML = t; $('msg').style.display = t ? 'flex' : 'none'; }
+function releaseUrl(){ if(curUrl){ try { URL.revokeObjectURL(curUrl); } catch(e){} curUrl = null; } }
+
+function stopVideo(){
+  if(failTimer){ clearTimeout(failTimer); failTimer = null; }
+  try { vid.pause(); } catch(e){}
+  vid.style.display = 'none';
+  ytPlayer.style.display = 'none';
+  ytPlayer.src = 'about:blank';
+  vid.removeAttribute('src'); try { vid.load(); } catch(e){}
+  releaseUrl();
+}
+
+function nextVideo(){
+  var pl = buildPlaylist();
+  if(!pl.length) return;
+  playItem((currentIndex + 1) % pl.length);
+}
+
+function playItem(index){
+  var pl = buildPlaylist();
+  stopVideo();
+  if(!pl.length){
+    showMsg('재생할 컨텐츠가 없습니다.<br>설정(OK)에서 동영상 파일명이나 유튜브 링크를 등록해 주세요.');
+    setStatus('영상', '등록 항목 없음', 'wait');
+    return;
+  }
+  showMsg('');
+  currentIndex = index % pl.length;
+  var item = pl[currentIndex];
+
+  if(item.type === 'local'){
+    vid.style.display = 'block';
+    curUrl = URL.createObjectURL(item.blob);
+    playMp4(curUrl, item.label);
+  } else if(item.type === 'mp4Url'){
+    vid.style.display = 'block';
+    playMp4(item.src, item.label);
+  } else if(item.type === 'youtube'){
+    ytPlayer.style.display = 'block';
+    playYoutubeItem(item);
+  }
+  renderQuickSelector();
+}
+
+function playMp4(src, label) {
+  setStatus('영상', '로딩 중: ' + label, 'wait');
+  vid.muted = true;
+  vid.defaultMuted = true;
+  vid.loop = false;
+  vid.onended = function(){ nextVideo(); };
+
+  vid.onerror = function(){
+    setStatus('영상', label + ' 재생 불가 ➔ 다음 스킵', 'bad');
+    setTimeout(nextVideo, 1200);
+  };
+
+  vid.onplaying = function(){
+    if(failTimer){ clearTimeout(failTimer); failTimer = null; }
+    setStatus('영상', label + ' 재생 중', 'ok');
+  };
+
+  vid.src = src;
+  var p = vid.play();
+  if(p && p.catch){
+    p.catch(function(err){
+      if(err && err.name === 'AbortError') return;
+      setStatus('영상', label + ' 스킵', 'bad');
+      setTimeout(nextVideo, 1200);
+    });
+  }
+
+  failTimer = setTimeout(function(){
+    if(vid.readyState < 2){
+      setStatus('영상', label + ' 파일부재/코덱불가 ➔ 스킵', 'bad');
+      nextVideo();
+    }
+  }, 2500);
+}
+
+function playYoutubeItem(item){
+  var t = item.target;
+  var wrapper = (state.ytWrapper || DEFAULT_DEFAULT_YT_WRAPPER).split('?')[0];
+  var q = state.ytQuality || 'hd1080';
+  ytPlayer.src = wrapper + '?' + (t.k === 'v' ? 'v=' : 'c=') + t.id + '&q=' + q;
+  setStatus('영상', '유튜브 재생 중 (' + q + ')', 'ok');
+
+  if(buildPlaylist().length > 1){
+    failTimer = setTimeout(nextVideo, (state.ytMinutes || 10) * 60 * 1000);
+  }
+}
+
+window.addEventListener('message', function(e){
+  var d = e.data;
+  if(typeof d === 'string'){ try { d = JSON.parse(d); } catch(x){ return; } }
+  if(!d) return;
+  var code = (d.ytError != null) ? d.ytError : (d.event === 'onError' ? d.info : null);
+  if(code != null){
+    setStatus('영상', '유튜브 오류 (' + code + ')', 'bad');
+    setTimeout(nextVideo, buildPlaylist().length > 1 ? 2000 : 60000);
+  }
+});
+
+/* ========== 하단 빠른 제어 바 호버링 제어 ========== */
+var hoverTimer = null;
+
+function showHoverUi() {
+  document.body.classList.add('show-hover-ui');
+  if (hoverTimer) clearTimeout(hoverTimer);
+  hoverTimer = setTimeout(hideHoverUi, 3500);
+}
+
+function hideHoverUi() {
+  document.body.classList.remove('show-hover-ui');
+  if (hoverTimer) clearTimeout(hoverTimer);
+}
+
+window.addEventListener('mousemove', showHoverUi);
+window.addEventListener('touchstart', showHoverUi);
+
+function renderQuickSelector() {
+  var ql = $('quickList'); if (!ql) return;
+  ql.innerHTML = '';
+  var pl = buildPlaylist();
+  
+  if (pl.length === 0) {
+    ql.innerHTML = '<div class="q-item">재생 목록 없음</div>';
+    return;
+  }
+
+  pl.forEach(function(item, idx) {
+    var div = document.createElement('div');
+    div.className = 'q-item' + (idx === currentIndex ? ' active' : '');
+    div.setAttribute('tabindex', '0');
+    var icon = (item.type === 'local') ? '💾 ' : ((item.type === 'youtube') ? '▶️ ' : '🌐 ');
+    div.innerHTML = (idx + 1) + '. ' + icon + esc(item.label);
+    
+    var triggerPlay = function() {
+      playItem(idx);
+      showHoverUi();
+    };
+
+    div.onclick = triggerPlay;
+    div.onkeydown = function(e) {
+      if (e.keyCode === 13 || e.keyCode === 23 || e.keyCode === 66) {
+        triggerPlay();
+        e.preventDefault();
+      }
+    };
+
+    ql.appendChild(div);
+  });
+}
+
+$('navPrev').onclick = function() {
+  var pl = buildPlaylist();
+  if (!pl.length) return;
+  var prevIdx = (currentIndex - 1 + pl.length) % pl.length;
+  playItem(prevIdx);
+  showHoverUi();
+};
+
+$('navNext').onclick = function() {
+  nextVideo();
+  showHoverUi();
+};
+
+/* ========== 설정 모달 및 관리 ========== */
+var modal = $('modal');
+
+$('buildingNameInput').addEventListener('input', function(e) {
+  var v = e.target.value.trim();
+  if (v) state.buildingName = v;
+});
+$('buildingNameInput').addEventListener('change', function(e) {
+  var v = e.target.value.trim();
+  if (v) state.buildingName = v;
+});
+
+$('ytQualitySelect').addEventListener('change', function(e) {
+  state.ytQuality = e.target.value;
+  persist();
+});
+
+function getFocusables(){
+  return Array.prototype.slice.call(modal.querySelectorAll('button:not([disabled]), input:not([type="file"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]'))
+    .filter(function(el){ return el.offsetWidth > 0 && el.offsetHeight > 0; });
+}
+
+function focusNext(dir) {
+  var focusables = getFocusables();
+  var curr = document.activeElement;
+  var idx = focusables.indexOf(curr);
+
+  if (idx === -1) {
+    if (focusables.length) focusables[0].focus();
+    return;
+  }
+
+  var nextIdx = idx + dir;
+  if (nextIdx >= 0 && nextIdx < focusables.length) {
+    focusables[nextIdx].focus();
+    focusables[nextIdx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
+
+function openModal(){ 
+  editingNoticeIdx = -1;
+  $('noticeInput').value = '';
+  $('noticeAdd').textContent = '추가';
+  $('buildingNameInput').value = state.buildingName || '스카이뷰';
+  $('ytQualitySelect').value = state.ytQuality || 'hd1080';
+  renderSettings(); 
+  modal.classList.add('open'); 
+  setTimeout(function(){ $('buildingNameInput').focus(); }, 150); 
+}
+
+function closeModal(){
+  var newName = $('buildingNameInput').value.trim();
+  if(newName) state.buildingName = newName;
+  state.manualNews = $('newsManual').value;
+  state.ytWrapper = $('ytWrapInput').value.trim();
+  state.ytQuality = $('ytQualitySelect').value;
+  
+  persist(); 
+  updateBuildingNameUI();
+  modal.classList.remove('open'); 
+  renderNotices(); 
+  updateWeather(); 
+  updateNews();
+  if(videoDirty){ videoDirty = false; playItem(0); }
+  $('gear').focus();
+}
+
+function renderSettings(){
+  $('buildingNameInput').value = state.buildingName || '스카이뷰';
+  $('ytQualitySelect').value = state.ytQuality || 'hd1080';
+  var uvl = $('unifiedVidList'); uvl.innerHTML = '';
+  var totalCount = 0;
+  
+  localItems.forEach(function(it, i){
+    totalCount++;
+    var d = document.createElement('div'); d.className = 'item';
+    d.innerHTML = '<span>[' + totalCount + '] 💾 USB 선택 파일: ' + esc(it.name) + ' <small>' + fmtSize(it.size) + '</small></span><button class="del" tabindex="0">삭제</button>';
+    d.querySelector('button').onclick = function(){
+      localItems.splice(i, 1); videoDirty = true;
+      if(it.persisted && it.id != null) dbDel(it.id).catch(function(){});
+      renderSettings(); renderQuickSelector();
+    };
+    uvl.appendChild(d);
+  });
+
+  state.videos.forEach(function(v, i){
+    totalCount++;
+    var d = document.createElement('div'); d.className = 'item';
+    d.innerHTML = '<span>[' + totalCount + '] 🌐 MP4 기본 경로: ' + esc(v) + '</span><button class="del" tabindex="0">삭제</button>';
+    d.querySelector('button').onclick = function(){
+      state.videos.splice(i, 1); videoDirty = true; persist(); renderSettings(); renderQuickSelector();
+    };
+    uvl.appendChild(d);
+  });
+
+  if (totalCount === 0) {
+    uvl.innerHTML = '<div class="hint">등록된 동영상이 없습니다.</div>';
+  }
+
+  var yl = $('ytList'); yl.innerHTML = '';
+  state.youtube.forEach(function(v, i){
+    var d = document.createElement('div'); d.className = 'item';
+    d.innerHTML = '<span>[' + (i+1) + '] ▶️ ' + esc(v) + '</span><button class="del" tabindex="0">삭제</button>';
+    d.querySelector('button').onclick = function(){ state.youtube.splice(i, 1); videoDirty = true; persist(); renderSettings(); renderQuickSelector(); };
+    yl.appendChild(d);
+  });
+  $('ytWrapInput').value = state.ytWrapper;
+
+  var nl = $('noticeList'); nl.innerHTML = '';
+  state.notices.forEach(function(n, i){
+    var d = document.createElement('div'); 
+    d.className = 'item' + (i === editingNoticeIdx ? ' editing' : '');
+    d.innerHTML = '<span>[' + (i+1) + '] ' + esc(n) + '</span>' +
+                  '<div><button class="edit" tabindex="0">수정</button><button class="del" tabindex="0">삭제</button></div>';
+    
+    d.querySelector('.edit').onclick = function(){
+      editingNoticeIdx = i;
+      $('noticeInput').value = state.notices[i];
+      $('noticeAdd').textContent = '수정 완료';
+      $('noticeInput').focus();
+      renderSettings();
+    };
+
+    d.querySelector('.del').onclick = function(){ 
+      if(editingNoticeIdx === i) {
+        editingNoticeIdx = -1;
+        $('noticeInput').value = '';
+        $('noticeAdd').textContent = '추가';
+      } else if(editingNoticeIdx > i) {
+        editingNoticeIdx--;
+      }
+      state.notices.splice(i, 1); persist(); renderSettings(); 
+    };
+    nl.appendChild(d);
+  });
+
+  var nrl = $('newsUrlList'); nrl.innerHTML = '';
+  state.newsRssList.forEach(function(url, i){
+    var d = document.createElement('div'); d.className = 'item';
+    d.innerHTML = '<span>[' + (i+1) + '] ' + esc(url) + '</span><button class="del" tabindex="0">삭제</button>';
+    d.querySelector('button').onclick = function(){
+      state.newsRssList.splice(i, 1); persist(); renderSettings();
+    };
+    nrl.appendChild(d);
+  });
+
+  $('newsManual').value = state.manualNews;
+  $('speed').value = state.speed; $('speedVal').textContent = state.speed;
+  var cb = $('cityBox'); cb.innerHTML = '';
+  Object.keys(CITIES).forEach(function(k){
+    var l = document.createElement('label');
+    l.className = 'cityLabel';
+    l.setAttribute('tabindex', '0');
+    l.innerHTML = '<input type="checkbox" tabindex="-1" ' + (state.cities.indexOf(k) >= 0 ? 'checked' : '') + '> ' + CITIES[k].n;
+    
+    var toggleCity = function() {
+      var chk = l.querySelector('input');
+      chk.checked = !chk.checked;
+      state.cities = state.cities.filter(function(c){ return c !== k; });
+      if(chk.checked) state.cities.push(k);
+      if(!state.cities.length){ state.cities = ['seoul']; renderSettings(); }
+      persist();
+    };
+
+    l.onclick = function(e){ if(e.target.tagName !== 'INPUT') toggleCity(); };
+    l.onkeydown = function(e){
+      if(e.keyCode === 13 || e.keyCode === 23 || e.keyCode === 66 || e.keyCode === 32) {
+        toggleCity(); e.preventDefault();
+      }
+    };
+    cb.appendChild(l);
+  });
+}
+
+$('exportBtn').onclick = function(){
+  var cfg = {
+    updated: new Date().toISOString(),
+    buildingName: $('buildingNameInput').value.trim() || state.buildingName || '스카이뷰',
+    videos: state.videos, youtube: state.youtube, ytQuality: state.ytQuality, ytWrapper: state.ytWrapper, ytMinutes: state.ytMinutes, notices: state.notices, speed: state.speed,
+    cities: state.cities, newsRssList: state.newsRssList, manualNews: state.manualNews
+  };
+  var text = '// config.js 저장을 위한 JSON 데이터\nwindow.SKYVIEW_CONFIG = ' + JSON.stringify(cfg, null, 2) + ';\n';
+  var box = $('exportBox'); box.style.display = 'block'; box.value = text;
+  $('cfgMsg').textContent = '아래 내용이 현재 설정입니다.';
+  try {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], {type:'text/javascript'}));
+    a.download = 'config.js'; document.body.appendChild(a); a.click(); a.remove();
+  } catch(e){}
+};
+
+/* 설정 불러오기 - 루트 경로의 config.js 읽기 */
+var CFG_URL = 'https://skyview381.github.io/config.js';
+function loadConfigScript(url, cb){
+  var old = document.getElementById('cfgScript'); if(old) old.parentNode.removeChild(old);
+  window.SKYVIEW_CONFIG = undefined;
+  var sc = document.createElement('script'); sc.id = 'cfgScript';
+  sc.onload = function(){ cb(!!window.SKYVIEW_CONFIG); };
+  sc.onerror = function(){ cb(false); };
+  sc.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+  document.head.appendChild(sc);
+}
+$('importBtn').onclick = function(){
+  var msg = $('cfgMsg'); msg.textContent = 'config.js 읽는 중...';
+  function done(where){
+    applyConfig(window.SKYVIEW_CONFIG, true);
+    videoDirty = true; renderSettings(); renderNotices(); renderQuickSelector();
+    msg.textContent = '✅ ' + where + '의 config.js 적용 완료. [저장하고 닫기]를 누르면 반영됩니다.';
+  }
+  loadConfigScript('config.js', function(ok){
+    if(ok) return done('같은 폴더');
+    msg.textContent = '같은 폴더에 없어 GitHub에서 읽는 중...';
+    loadConfigScript(CFG_URL, function(ok2){
+      if(ok2) done('GitHub'); else msg.textContent = '❌ config.js를 찾지 못했습니다. (같은 폴더 또는 GitHub ' + CFG_URL + ')';
+    });
+  });
+};
+
+function triggerFilePick(targetInputId) {
+  var fileInput = $(targetInputId);
+  if (fileInput) fileInput.click();
+}
+
+$('pickBtn').onclick = function(){ triggerFilePick('filePick'); };
+$('filePick').onchange = function(e){ addFiles(e.target.files); e.target.value = ''; };
+
+$('vidAdd').onclick = function(){
+  var v = $('vidInput').value.trim(); if(!v) return;
+  state.videos.push(v); $('vidInput').value = ''; videoDirty = true; persist(); renderSettings(); renderQuickSelector();
+};
+
+$('ytAdd').onclick = function(){
+  var v = $('ytInput').value.trim(); if(!v) return;
+  if(!ytTarget(v)){ $('ytInput').value = ''; $('ytInput').placeholder = '인식할 수 없는 주소입니다.'; return; }
+  state.youtube.push(v); $('ytInput').value = ''; videoDirty = true; persist(); renderSettings(); renderQuickSelector();
+};
+
+$('noticeAdd').onclick = function(){ 
+  var v = $('noticeInput').value.trim(); if(!v) return;
+  if (editingNoticeIdx >= 0) {
+    state.notices[editingNoticeIdx] = v;
+    editingNoticeIdx = -1;
+    $('noticeAdd').textContent = '추가';
+  } else {
+    state.notices.push(v); 
+  }
+  $('noticeInput').value = ''; persist(); renderSettings(); 
+};
+
+$('newsUrlAdd').onclick = function(){ 
+  var v = $('newsUrlInput').value.trim(); 
+  if(v){ state.newsRssList.push(v); $('newsUrlInput').value = ''; persist(); renderSettings(); } 
+};
+$('speed').oninput = function(e){ state.speed = parseInt(e.target.value, 10); $('speedVal').textContent = state.speed; persist(); };
+$('gear').onclick = openModal; $('closeBtn').onclick = closeModal;
+
+/* 리모컨 / 키보드 키 바인딩 */
+window.addEventListener('keydown', function(e){
+  showHoverUi();
+  var open = modal.classList.contains('open');
+  var code = e.keyCode || e.key;
+  var isEnterKey = (code === 13 || code === 23 || code === 66 || code === 'Select' || code === 'OK');
+  var isBackKey = (code === 27 || code === 4 || code === 10009 || (code === 8 && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA'));
+
+  if(open){
+    if(isBackKey){ closeModal(); e.preventDefault(); return; }
+    if(isEnterKey && (e.target.id === 'pickBtn' || e.target.id === 'importBtn')) { e.target.click(); e.preventDefault(); return; }
+
+    if(e.target.id === 'speed'){
+      if(code === 37 || code === 'ArrowLeft'){
+        state.speed = Math.max(40, state.speed - 10);
+        $('speed').value = state.speed; $('speedVal').textContent = state.speed; persist();
+        e.preventDefault(); return;
+      } else if(code === 39 || code === 'ArrowRight'){
+        state.speed = Math.min(220, state.speed + 10);
+        $('speed').value = state.speed; $('speedVal').textContent = state.speed; persist();
+        e.preventDefault(); return;
+      }
+    }
+
+    if(code === 38 || code === 'ArrowUp'){ focusNext(-1); e.preventDefault(); }
+    else if(code === 40 || code === 'ArrowDown'){ focusNext(1); e.preventDefault(); }
+  } else {
+    if(isEnterKey){
+      if(document.activeElement && document.activeElement.tagName === 'BUTTON'){
+        document.activeElement.click();
+      } else { openModal(); }
+      e.preventDefault();
+    } else if(code === 37 || code === 'ArrowLeft'){
+      $('navPrev').focus();
+    } else if(code === 39 || code === 'ArrowRight'){
+      $('navNext').focus();
+    }
+  }
+});
+
+/* ========== 시작 및 초기화 ========== */
+updateBuildingNameUI();
+renderNotices();
+renderNews(["실시간 뉴스 수신 중입니다. 잠시만 기다려 주세요..."]);
+setStatus('날씨', '확인 중...', 'wait'); setStatus('뉴스', '준비 중...', 'wait'); setStatus('영상', '준비 중...', 'wait');
+
+loadLocal().then(function(){ 
+  playItem(0); 
+  renderQuickSelector();
+});
+updateNews(); 
+updateWeather();
+
+setInterval(updateNews, 10 * 60 * 1000);
+setInterval(updateWeather, 10 * 60 * 1000);
+
+/* 시작 시 GitHub 루트 경로의 config.js를 읽어 반영 */
+setTimeout(function(){
+  loadConfigScript(CFG_URL, function(ok){
+    if(ok && applyConfig(window.SKYVIEW_CONFIG, false)){ renderNotices(); videoDirty = false; playItem(0); renderQuickSelector(); }
+  });
+}, 3000);
+
+/* 유지 관리 */
+setInterval(function(){
+  if(vid.style.display === 'block' && vid.paused && vid.getAttribute('src') && !vid.ended){
+    var p = vid.play(); if(p && p.catch) p.catch(function(){});
+  }
+}, 20000);
+
+function keepAwake(){ try { if(navigator.wakeLock) navigator.wakeLock.request('screen').catch(function(){}); } catch(e){} }
+keepAwake();
+document.addEventListener('visibilitychange', function(){ if(!document.hidden) keepAwake(); });
+setInterval(function(){ var d = new Date(); if(d.getHours() === 4 && d.getMinutes() === 0) location.reload(); }, 60000);
+window.addEventListener('keydown', function(){ if(vid.paused && vid.getAttribute('src')){ var p = vid.play(); if(p && p.catch) p.catch(function(){}); } });
+window.addEventListener('click', function(){ if(vid.paused && vid.getAttribute('src')){ var p = vid.play(); if(p && p.catch) p.catch(function(){}); } });
+</script>
+</body>
+</html>
