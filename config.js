@@ -18,7 +18,8 @@ window.SKYVIEW_CONFIG = {
     "https://youtu.be/IneASX_QQrg?si=v4ucJFWLLln0o8Ml",
     "https://youtu.be/VGkoaHyVUdg?si=BUkU16YowPClVy1O",
     "https://youtu.be/DFUe3uAxoBo?si=bkK8FuJmsrUneVIU",
-    "https://youtu.be/tD97HOFAR54?si=mj4vbD756ovEBkYJ"
+    "https://youtu.be/tD97HOFAR54?si=mj4vbD756ovEBkYJ",
+    "https://youtu.be/kkm1v6HJCPc?si=cHH0iGCfpqBaSCv4"
   ],
   "ytQuality": "hd1080",
   "ytWrapper": "https://skyview381.github.io/lobby/yt.html",
