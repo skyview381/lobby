@@ -1,29 +1,39 @@
 <!DOCTYPE html>
-<html lang="ko"><head><meta charset="UTF-8">
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>yt relay</title>
-<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0}</style>
-</head><body>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  iframe { position: absolute; left: 0; top: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<iframe id="player" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe>
 <script>
-/* https 주소에 올려두는 유튜브 중계 페이지. 사용: yt.html?v=영상ID  또는  yt.html?c=채널ID(UC...) */
 (function(){
   var p = {}, qs = location.search.replace(/^\?/, '').split('&');
   for(var i = 0; i < qs.length; i++){ var kv = qs[i].split('='); if(kv[0]) p[kv[0]] = decodeURIComponent(kv[1] || ''); }
-  var base = 'autoplay=1&mute=1&controls=0&rel=0&playsinline=1&enablejsapi=1&origin=' + encodeURIComponent(location.origin);
-  var src;
-  if(p.v) src = 'https://www.youtube.com/embed/' + encodeURIComponent(p.v) + '?' + base + '&loop=1&playlist=' + encodeURIComponent(p.v);
-  else if(p.c) src = 'https://www.youtube.com/embed/live_stream?channel=' + encodeURIComponent(p.c) + '&' + base;
-  if(!src) return;
-  var f = document.createElement('iframe');
-  f.allow = 'autoplay; encrypted-media; picture-in-picture';
-  f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
-  f.onload = function(){ try { f.contentWindow.postMessage('{"event":"listening","id":1,"channel":"widget"}', '*'); } catch(e){} };
-  f.src = src; document.body.appendChild(f);
-  // 유튜브 오류(153, 101, 150 등)를 부모 화면(skyview)에 전달
+  
+  var f = document.getElementById('player');
+  var base = 'autoplay=1&mute=1&controls=0&rel=0&playsinline=1&enablejsapi=1';
+  
+  if (p.v) {
+    f.src = 'https://www.youtube.com/embed/' + encodeURIComponent(p.v) + '?' + base + '&loop=1&playlist=' + encodeURIComponent(p.v);
+  } else if (p.c) {
+    f.src = 'https://www.youtube.com/embed/live_stream?channel=' + encodeURIComponent(p.c) + '&' + base;
+  }
+  
+  f.onload = function(){
+    try { f.contentWindow.postMessage('{"event":"listening","id":1,"channel":"widget"}', '*'); } catch(e){}
+  };
+  
   window.addEventListener('message', function(e){
     var d = e.data; if(typeof d === 'string'){ try { d = JSON.parse(d); } catch(x){ return; } }
     if(d && d.event === 'onError' && window.parent !== window) window.parent.postMessage({ ytError: d.info }, '*');
   });
 })();
 </script>
-</body></html>
+</body>
+</html>
