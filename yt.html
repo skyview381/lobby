@@ -1,25 +1,55 @@
 <!DOCTYPE html>
-<html lang="ko"><head><meta charset="UTF-8">
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>yt relay</title>
+<title>yt relay (고화질 & 꽉 채우기)</title>
 <style>
-html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,sans-serif;color:#fff}
-iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0}
-#tester{padding:40px;max-width:760px;margin:0 auto;line-height:1.7}
-#tester input{width:100%;box-sizing:border-box;font-size:18px;padding:10px;margin:10px 0}
-#tester button{font-size:18px;padding:10px 20px}
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #000; overflow: hidden;
+    font-family: system-ui, sans-serif; color: #fff;
+  }
+  
+  /* 화면 가득 채우기 (여백 제거) 로직 */
+  .video-container {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  iframe {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 100vw;
+    height: 56.25vw; /* 16:9 비율 유지를 위한 세로 길이 */
+    min-height: 100vh;
+    min-width: 177.77vh; /* 16:9 비율 유지를 위한 가로 길이 */
+    transform: translate(-50%, -50%) scale(1.05); /* 약간의 확장으로 양쪽 레터박스 완전 제거 */
+    border: 0;
+  }
+
+  #tester { padding: 40px; max-width: 760px; margin: 0 auto; line-height: 1.7; }
+  #tester input { width: 100%; box-sizing: border-box; font-size: 18px; padding: 10px; margin: 10px 0; }
+  #tester button { font-size: 18px; padding: 10px 20px; }
 </style>
-</head><body>
+</head>
+<body>
+
+<div class="video-container" id="container"></div>
+
 <script>
-/* 유튜브 중계 페이지.  yt.html?v=영상ID  /  yt.html?c=채널ID(UC...)  /  &q=hd1080 (원하는 화질)
-   주소에 아무것도 없으면 영상 퍼가기 테스트 화면이 나옵니다. */
 (function(){
   var p = {}, qs = location.search.replace(/^\?/, '').split('&');
   for(var i = 0; i < qs.length; i++){ var kv = qs[i].split('='); if(kv[0]) p[kv[0]] = decodeURIComponent(kv[1] || ''); }
 
   if(!p.v && !p.c){
     var d = document.createElement('div'); d.id = 'tester';
-    d.innerHTML = '<h2>유튜브 퍼가기 테스트</h2><div>유튜브 링크를 붙여넣고 [재생]을 누르세요. 영상이 나오면 skyview에서도 재생됩니다.<br>(오류 101/150이면 퍼가기가 금지된 영상입니다)</div>' +
+    d.innerHTML = '<h2>유튜브 퍼가기 테스트</h2><div>유튜브 링크를 붙여넣고 [재생]을 누르세요.<br>(오류 101/150이면 퍼가기가 금지된 영상입니다)</div>' +
       '<input id="u" placeholder="https://www.youtube.com/live/..."><button id="go">재생</button>';
     document.body.appendChild(d);
     document.getElementById('go').onclick = function(){
@@ -32,7 +62,8 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0}
   }
 
   var Q = p.q || 'hd1080';
-  var base = 'autoplay=1&mute=1&controls=0&rel=0&playsinline=1&enablejsapi=1&vq=' + Q + '&origin=' + encodeURIComponent(location.origin);
+  // vq=hd1080 및 hd=1 설정을 통해 고화질 강제 요청
+  var base = 'autoplay=1&mute=1&controls=0&rel=0&playsinline=1&enablejsapi=1&vq=' + Q + '&hd=1&origin=' + encodeURIComponent(location.origin);
   var src = p.v
     ? 'https://www.youtube.com/embed/' + encodeURIComponent(p.v) + '?' + base + '&loop=1&playlist=' + encodeURIComponent(p.v)
     : 'https://www.youtube.com/embed/live_stream?channel=' + encodeURIComponent(p.c) + '&' + base;
@@ -42,21 +73,26 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0}
   f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
 
   function cmd(func, args){ try { f.contentWindow.postMessage(JSON.stringify({event:'command', func:func, args:args || []}), '*'); } catch(e){} }
-  function setQ(){ cmd('setPlaybackQualityRange', [Q, Q]); cmd('setPlaybackQuality', [Q]); }
+  function setQ(){ 
+    cmd('setPlaybackQualityRange', [Q, Q]); 
+    cmd('setPlaybackQuality', [Q]); 
+  }
 
   f.onload = function(){
     try { f.contentWindow.postMessage('{"event":"listening","id":1,"channel":"widget"}', '*'); } catch(e){}
-    // 유튜브는 처음에 낮은 화질로 시작하므로, 여러 번 고화질을 요청한다
-    [1500, 4000, 8000, 15000, 30000, 60000, 120000].forEach(function(t){ setTimeout(setQ, t); });
+    [1000, 3000, 6000, 10000, 20000].forEach(function(t){ setTimeout(setQ, t); });
   };
-  f.src = src; document.body.appendChild(f);
+  
+  f.src = src; 
+  document.getElementById('container').appendChild(f);
 
   window.addEventListener('message', function(e){
     var d = e.data; if(typeof d === 'string'){ try { d = JSON.parse(d); } catch(x){ return; } }
     if(!d) return;
     if(d.event === 'onError' && window.parent !== window) window.parent.postMessage({ ytError: d.info }, '*');
-    if(d.event === 'onStateChange' && d.info === 1) setQ();          // 재생 시작될 때마다 다시 요청
+    if(d.event === 'onStateChange' && d.info === 1) setQ();
   });
 })();
 </script>
-</body></html>
+</body>
+</html>
