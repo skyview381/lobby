@@ -9,7 +9,6 @@ window.SKYVIEW_CONFIG = {
     "25.mp4", "26.mp4", "27.mp4", "28.mp4", "29.mp4", "30.mp4", "31.mp4", "32.mp4"
   ],
   "youtube": [
-    "https://www.youtube.com/live/_gufPt29wps",
     "https://youtu.be/VGkoaHyVUdg?si=1ud0S2V2_sNHLgM4",
     "https://youtu.be/9heVLE7GOsE?si=6BJSCK8s8IsbeJVh",
     "https://youtu.be/sZKzw0s8O9o?si=xzekiXnz8oXrHGTr",
